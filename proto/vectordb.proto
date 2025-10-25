@@ -1,0 +1,61 @@
+syntax = "proto3";
+import "common.proto";
+package vectorbase;
+
+service VectorDB {
+  rpc Insert(InsertRequest) returns (InsertResponse);
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc GetStats(StatsRequest) returns (StatsResponse);
+}
+
+// Insert vectors API
+message InsertRequest {
+  repeated VectorRecord vectors = 1;
+  IndexConfig index_config = 2;
+}
+
+message InsertResponse {
+  int64 lsn = 1;
+  int32 inserted_count = 2;
+  repeated int64 inserted_ids = 3;
+}
+
+// Search API
+message SearchRequest {
+  repeated float query_vector = 1;
+  int32 k = 2; // Top-k
+  int32 ef = 3; // Search node pool
+}
+
+message SearchResult {
+  int64 id = 1;
+  float distance = 2;
+  map<string, string> metadata = 3;
+}
+
+message SearchResponse {
+  repeated SearchResult results = 1;
+  float query_time_ms = 2;
+}
+
+// Delete API
+message DeleteRequest {
+  repeated int64 ids = 1;
+}
+
+message DeleteResponse {
+  int64 lsn = 1;
+  int32 deleted_count = 2;
+}
+
+// Stats API
+message StatsRequest {}
+
+message StatsResponse {
+  int64 total_vectors = 1;
+  int32 num_segments = 2;
+  int32 num_sealed_segments = 3;
+  int64 current_lsn = 4;
+  float memory_mb = 5;
+}

@@ -122,7 +122,8 @@ class WALWriter:
 
     def close(self):
         """Closes the currently open WAL file."""
-        self.current_file.close()
+        if not self.current_file.closed:
+            self.current_file.close()
 
 
 class WALReader:

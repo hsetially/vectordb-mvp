@@ -1,23 +1,25 @@
 import sqlite3
+import struct
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
-from .wal import WALWriter
+import numpy as np
+
+from .wal import WALWriter, WALReader, OP_INSERT, OP_DELETE
 from .binlog import BinlogWriter, BinlogReader
 from core.segment import Segment, SegmentState
+from core.config import IndexConfig
 
 class SnapshotManager:
-    """
-    Coordinates the creation of durable snapshots by persisting sealed segments
-    to a columnar format (binlog) and recording metadata in a SQLite database.
-    """
     def __init__(
         self,
         storage_dir: str,
         wal_writer: WALWriter,
         binlog_writer: BinlogWriter,
-        binlog_reader: BinlogReader
+        binlog_reader: BinlogReader,
+        config: IndexConfig,
+        dim: int
     ):
         self.storage_dir = Path(storage_dir)
         self.db_path = self.storage_dir / "metadata.db"
@@ -25,14 +27,14 @@ class SnapshotManager:
         self.wal_writer = wal_writer
         self.binlog_writer = binlog_writer
         self.binlog_reader = binlog_reader
+        self.config = config
+        self.dim = dim
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         self._init_db()
 
     def _init_db(self):
-        """
-        Initializes the SQLite database and creates the necessary tables
-        for storing checkpoint and segment metadata if they don't exist.
-        """
+        """Initializes the SQLite database and tables."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -45,7 +47,6 @@ class SnapshotManager:
                         num_vectors INTEGER
                     )
                 """)
-                
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS checkpoints (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,19 +60,8 @@ class SnapshotManager:
             print(f"Database error in _init_db: {e}")
             raise
 
+
     def checkpoint(self, segments: List[Segment]):
-        """
-        Creates a new checkpoint.
-        
-        This process involves:
-        1. Persisting any newly sealed segments to the binlog (Parquet).
-        2. Recording the metadata for these segments in the SQLite database.
-        3. Writing a special checkpoint marker to the WAL.
-        4. Recording the checkpoint event itself in the SQLite database.
-        
-        Args:
-            segments: The current list of all segments (growing and sealed).
-        """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -108,8 +98,62 @@ class SnapshotManager:
                 ))
                 
                 conn.commit()
-                print(f"Checkpoint created successfully at LSN {checkpoint_lsn}.")
-
         except sqlite3.Error as e:
             print(f"Database error during checkpoint: {e}")
             raise
+
+    def recover(self) -> Tuple[List[Segment], int]:
+        print("Starting database recovery...")
+        recovered_segments = []
+        checkpoint_lsn = 0
+        
+        if not self.db_path.exists():
+            print("No metadata database found. Starting fresh.")
+        else:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT lsn FROM checkpoints ORDER BY id DESC LIMIT 1")
+                    row = cursor.fetchone()
+                    if row:
+                        checkpoint_lsn = row[0]
+
+                    cursor.execute("SELECT id, created_at, sealed_at FROM segments")
+                    for seg_id, created_at, sealed_at in cursor.fetchall():
+                        vectors = self.binlog_reader.read_segment(seg_id)
+                        seg = Segment(dim=self.dim, config=self.config)
+                        seg.segment_id = seg_id
+                        seg.vectors = vectors
+                        seg.created_at = created_at
+                        seg.sealed_at = sealed_at
+                        seg.seal()
+                        recovered_segments.append(seg)
+            except sqlite3.Error as e:
+                print(f"Database error during recovery: {e}. Attempting WAL-only recovery.")
+
+        growing_segment = Segment(dim=self.dim, config=self.config)
+        
+        wal_reader = WALReader(self.wal_writer.wal_dir)
+        last_lsn = checkpoint_lsn
+        
+        for entry in wal_reader.replay(from_lsn=checkpoint_lsn):
+            last_lsn = entry.lsn
+            if entry.op_type == OP_INSERT:
+                ext_id, = struct.unpack('<Q', entry.payload[:8])
+                vec_data = np.frombuffer(entry.payload[8:], dtype=np.float32)
+                growing_segment.insert(ext_id, vec_data)
+            elif entry.op_type == OP_DELETE:
+                ext_id, = struct.unpack('<Q', entry.payload)
+                if ext_id in growing_segment.vectors:
+                    del growing_segment.vectors[ext_id]
+                else:
+                    for seg in recovered_segments:
+                        if ext_id in seg.vectors:
+                            del seg.vectors[ext_id]
+                            break
+        
+        if len(growing_segment) > 0:
+            recovered_segments.append(growing_segment)
+            
+        print(f"Recovery complete. Loaded {len(recovered_segments)} segments. Last LSN is {last_lsn}.")
+        return recovered_segments, last_lsn

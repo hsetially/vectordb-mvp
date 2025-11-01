@@ -1,6 +1,6 @@
 import sqlite3
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from storage.snapshot import SnapshotManager
 from core.segment import Segment, SegmentState
@@ -20,11 +20,15 @@ def mock_dependencies(tmp_path):
     mock_binlog_writer = Mock()
     mock_binlog_reader = Mock()
     
+    mock_config = IndexConfig(M=8, ef_construction=100, metric="l2")
+    
     return {
         "storage_dir": str(storage_dir),
         "wal_writer": mock_wal_writer,
         "binlog_writer": mock_binlog_writer,
-        "binlog_reader": mock_binlog_reader
+        "binlog_reader": mock_binlog_reader,
+        "config": mock_config,
+        "dim": 4
     }
 
 @pytest.fixture
@@ -49,8 +53,10 @@ def test_db_initialization(snapshot_manager):
 def test_checkpoint_writes_sealed_segment(snapshot_manager, mock_dependencies):
     """Test that a sealed segment is written to the binlog and its metadata is saved."""
     binlog_writer = mock_dependencies["binlog_writer"]
+    config = mock_dependencies["config"]
+    dim = mock_dependencies["dim"]
     
-    sealed_segment = Segment(dim=4)
+    sealed_segment = Segment(dim=dim, config=config)
     sealed_segment.state = SegmentState.SEALED
     sealed_segment.vectors = {i: f"vec{i}" for i in range(10)}
     
@@ -72,8 +78,10 @@ def test_checkpoint_writes_sealed_segment(snapshot_manager, mock_dependencies):
 def test_checkpoint_ignores_growing_segment(snapshot_manager, mock_dependencies):
     """Test that a segment in the GROWING state is ignored during checkpoint."""
     binlog_writer = mock_dependencies["binlog_writer"]
+    config = mock_dependencies["config"]
+    dim = mock_dependencies["dim"]
     
-    growing_segment = Segment(dim=4)
+    growing_segment = Segment(dim=dim, config=config)
     growing_segment.state = SegmentState.GROWING
     snapshot_manager.checkpoint([growing_segment])
     binlog_writer.write_segment.assert_not_called()

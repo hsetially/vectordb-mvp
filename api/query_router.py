@@ -55,15 +55,18 @@ class SegmentManager:
 
     def _seal_growing_segment(self):
         """Seals the current growing segment."""
-        print(f"Sealing segment {self.growing_segment.segment_id}...")
+        print(f"Sealing segment {self.growing_segment.segment_id} with {len(self.growing_segment)} vectors...")
         self.growing_segment.seal()
         self.sealed_segments.append(self.growing_segment)
         self._init_growing_segment()
         
         if len(self.sealed_segments) % 5 == 0:
             print("Reached checkpoint threshold, triggering checkpoint...")
-            all_segments = self.get_all_segments()
-            self.snapshot_manager.checkpoint(all_segments)
+            checkpoint_thread = threading.Thread(
+                target=self.snapshot_manager.checkpoint,
+                args=(self.get_all_segments(),)
+            )
+            checkpoint_thread.start()
 
     def delete(self, external_id: int):
         """Deletes a vector from the growing segment."""
@@ -98,19 +101,36 @@ class QueryRouter:
         self.segment_manager = segment_manager
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 4)
 
-    def search(self, query: np.ndarray, k: int, ef: int) -> List[Tuple[int, float]]:
-        segments = self.segment_manager.get_all_segments()
-        if not segments:
+    def _search_segment(self, segment: Segment, query: np.ndarray, k: int, ef: int) -> List[Tuple[int, float]]:
+        try:
+            return segment.search(query, k, ef)
+        except Exception as e:
+            print(f"Error searching segment {segment.segment_id}: {e}")
             return []
 
-        futures = {self.executor.submit(seg.search, query, k, ef): seg for seg in segments}
+    def search(self, query: np.ndarray, k: int, ef: int) -> List[Tuple[int, float]]:
+        all_segments = self.segment_manager.get_all_segments()
+        if not all_segments:
+            return []
+
+        future_to_segment = {
+            self.executor.submit(self._search_segment, seg, query, k, ef): seg
+            for seg in all_segments
+        }
         
-        all_results = []
-        for future in as_completed(futures):
+        all_results: List[Tuple[int, float]] = []
+        for future in as_completed(future_to_segment, timeout=5.0):
             try:
                 segment_results = future.result()
                 all_results.extend(segment_results)
             except Exception as e:
-                print(f"Segment search failed: {e}")
+                seg = future_to_segment[future]
+                print(f"Segment {seg.segment_id} search task failed: {e}")
 
-        return heapq.nsmallest(k, all_results, key=lambda x: x[1])
+        if not all_results:
+            return []
+            
+        global_top_k = heapq.nsmallest(k, all_results, key=lambda item: item[1])
+        
+        return global_top_k
+

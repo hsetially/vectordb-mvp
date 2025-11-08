@@ -1,0 +1,33 @@
+# config.yaml.example
+# Example configuration file for VectorBase
+# Copy to config.yaml and adjust as needed
+
+storage:
+  # Root data directory
+  data_dir: ./data
+  # Write-Ahead Log directory
+  wal_dir: ./data/wal
+  # Binlog (Parquet) directory for sealed segments
+  binlog_dir: ./data/binlog
+
+index:
+  # HNSW parameter: max connections per node
+  M: 16
+  # HNSW parameter: size of dynamic candidate set during construction
+  ef_construction: 200
+  # Distance metric: l2, ip (inner product), or cosine
+  metric: l2
+  # Vector dimensionality
+  dim: 128
+
+segment:
+  # Maximum number of vectors per segment before auto-sealing
+  max_vectors_per_segment: 100000
+
+server:
+  # gRPC server port
+  grpc_port: 9000
+
+logging:
+  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: INFO

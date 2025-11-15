@@ -1,13 +1,10 @@
-# benchmarks/run_all.py
-
 import json
 import os
 import sys
-from typing import List, Callable, Dict, Any # <-- FIX 1: Add typing imports
+from typing import List, Callable, Dict, Any
 
 import numpy as np
 
-# Ensure the project root is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from benchmarks.datasets import ANNDataset
@@ -17,15 +14,12 @@ from core.hnsw_index import HNSWIndex
 from core.config import IndexConfig
 
 
-# --- Helper functions for our VectorBase HNSWIndex ---
-
 def build_vectorbase(vectors: np.ndarray, M: int, ef_construction: int) -> HNSWIndex:
     """Builds our custom HNSWIndex."""
     dim = vectors.shape[1]
     config = IndexConfig(M=M, ef_construction=ef_construction, metric="l2")
     index = HNSWIndex(dim=dim, config=config)
     
-    # Insert vectors one by one
     print(f"Building VectorBase index with {len(vectors)} vectors...")
     for i, vec in enumerate(vectors):
         index.add(i, vec)
@@ -38,9 +32,6 @@ def search_vectorbase(index: HNSWIndex, query: np.ndarray, k: int, ef: int) -> L
     """Search function for our custom HNSWIndex."""
     results = index.search(query, k, ef)
     return [res[0] for res in results]
-
-
-# --- Benchmark Runners ---
 
 def run_vectorbase_benchmark(dataset: ANNDataset, evaluator: BenchmarkEvaluator) -> dict:
     """Runs the benchmark suite for our VectorBase HNSW implementation."""
@@ -69,8 +60,6 @@ def run_vectorbase_benchmark(dataset: ANNDataset, evaluator: BenchmarkEvaluator)
 
 def run_faiss_benchmark(dataset: ANNDataset, evaluator: BenchmarkEvaluator) -> dict:
     """Runs the benchmark suite for FAISS baselines."""
-    
-    # <-- FIX 2: Correctly define the builder and searcher lambdas -->
     configs = [
         ("FAISS-FlatL2",
          lambda vecs: FAISSBaseline().build_flat(vecs),
@@ -90,7 +79,7 @@ def run_faiss_benchmark(dataset: ANNDataset, evaluator: BenchmarkEvaluator) -> d
             index_builder=lambda: builder(dataset.train),
             search_func=searcher,
             k_values=[1, 10, 100],
-            ef_values=[32, 64, 128, 256] # Pass all required arguments
+            ef_values=[32, 64, 128, 256]
         )
     
     return results
@@ -109,7 +98,6 @@ if __name__ == "__main__":
     print("\n=== Running FAISS Benchmarks ===")
     faiss_results = run_faiss_benchmark(sift_dataset, evaluator)
     
-    # Combine and save results
     all_results = {**vb_results, **faiss_results}
     output_file = "results/benchmark_sift1m_results.json"
     

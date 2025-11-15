@@ -169,6 +169,10 @@ def main():
         "--log-level", type=str, default=None,
         help="Override log level from config"
     )
+    parser.add_argument(
+        "--override", action="append",
+        help="Override a config value, e.g., --override segment.max_vectors_per_segment=1000"
+    )
     
     args = parser.parse_args()
     
@@ -184,6 +188,24 @@ def main():
     
     if args.log_level:
         config["logging"]["level"] = args.log_level
+    
+    if args.override:
+        for override_str in args.override:
+            try:
+                key_str, value = override_str.split('=', 1)
+                keys = key_str.split('.')
+                sub_config = config
+                for key in keys[:-1]:
+                    sub_config = sub_config[key]
+                try: value = int(value)
+                except ValueError:
+                    try: value = float(value)
+                    except ValueError: pass
+                
+                sub_config[keys[-1]] = value
+                print(f"Overrode config: {key_str} = {value}")
+            except (ValueError, KeyError) as e:
+                print(f"Warning: Could not apply override '{override_str}': {e}", file=sys.stderr)
     
     setup_logging(level=config["logging"]["level"])
     logger = logging.getLogger(__name__)

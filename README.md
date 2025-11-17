@@ -1,4 +1,11 @@
-# VectorBase: Production-Grade Vector Database
+# VectorBase
+
+Project authors -
+Davanapally Itesh (M25AI1046) ;
+Harpreet Singh (M25AI1084) ;
+Deepak Kumar Sahoo (M25AI1095) ;
+Sanidhya Dash - (M25AI1036) ;
+Anish Iyer - (M25AI1102)
 
 A fully-functional, crash-resistant vector database implementing the HNSW (Hierarchical Navigable Small World) algorithm with durability guarantees, parallel search, and automatic recovery.
 

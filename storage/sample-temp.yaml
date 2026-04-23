@@ -1,0 +1,20 @@
+app:
+  name: changed-sample
+  feature_flags:
+    realtime: true
+    previews: true
+  legacySortOptions:
+    orderFirst:
+      - ServiceAccount
+      - NetworkPolicy
+      - ClusterRole
+      - RoleBinding
+      - PriorityClass
+      - PersistentVolume
+      - PersistentVolumeClaim
+      - Deployment
+      - StatefulSet
+      - CronJob
+      - PodDisruptionBudget
+    orderLast:
+      - ValidatingWebhookConfiguration
